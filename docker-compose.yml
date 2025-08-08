@@ -1,0 +1,17 @@
+version: '3.8'
+services:
+  backend:
+    build: ./PEFT_PROJECT
+    container_name: WardrobeX_backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./PEFT_PROJECT:/app
+
+  frontend:
+    build: ./PEFT_FRONTEND
+    container_name: WardrobeX_frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend   
