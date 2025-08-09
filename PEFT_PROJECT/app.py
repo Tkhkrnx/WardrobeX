@@ -15,7 +15,9 @@ from typing import List, Dict
 from peft import PeftModel
 from langchain_openai import ChatOpenAI
 import logging
+from dotenv import load_dotenv
 
+load_dotenv(override=True)
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
@@ -74,10 +76,10 @@ def load_models():
     safe_log_info("Loading models...")
 
     # 加载 ViT 特征提取器
-    extractor = ViTImageProcessor.from_pretrained('google/vit-base-patch16-224')
+    extractor = ViTImageProcessor.from_pretrained('/data/google/vit-base-patch16-224')
 
     # 加载基础 ViT 模型
-    vit = ViTModel.from_pretrained('google/vit-base-patch16-224')
+    vit = ViTModel.from_pretrained('/data/google/vit-base-patch16-224')
 
     # 加载使用 LoRA 微调的最佳模型权重
     try:
@@ -93,21 +95,23 @@ def load_models():
             safe_log_info("LoRA model directory not found, using base ViT model")
     except Exception as e:
         safe_log_info(f"Failed to load LoRA model: {e}")
-    vit.eval().cuda()
+    vit.eval()  # 移除.cuda()，在CPU上运行
 
     # 加载本地微调的文案生成模型 (Prompt Tuning)
     try:
         safe_log_info("Loading fine-tuned text generation model...")
-        base_model_name = './Qwen3-0.6B'
+        base_model_name = '/data/Qwen3-0.6B'
         text_tokenizer = AutoTokenizer.from_pretrained(base_model_name, trust_remote_code=True)
         if text_tokenizer.pad_token is None:
             text_tokenizer.pad_token = text_tokenizer.eos_token
 
+        # 使用更低的精度加载模型以节省内存
         base_model = AutoModelForCausalLM.from_pretrained(
             base_model_name,
             trust_remote_code=True,
-            torch_dtype=torch.float16
-        ).cuda()
+            torch_dtype=torch.float16,  # 保持float16以节省内存
+            low_cpu_mem_usage=True  # 减少CPU内存使用
+        )  # 移除.cuda()，在CPU上运行
 
         # 检查是否存在训练后最好的模型
         best_model_path = 'outputs/qwen3_0.6b_prompt_best'
@@ -209,7 +213,8 @@ def generate_outline_local(prompt: str, max_tokens: int = 100) -> str:
         # 清理提示词，确保没有多余的空白字符
         prompt = prompt.strip()
 
-        inputs = text_tokenizer(prompt, return_tensors='pt', padding=True, truncation=True, max_length=512).to('cuda')
+        # 使用float16精度并避免使用GPU
+        inputs = text_tokenizer(prompt, return_tensors='pt', padding=True, truncation=True, max_length=512)
 
         with torch.no_grad():
             outputs = text_model.generate(
@@ -512,9 +517,14 @@ async def recommend_complete_outfit(file: UploadFile = File(...)):
         input_category = detect_clothing_category(img)
         safe_log_info(f"Detected category: {input_category}")
 
-        inputs = extractor(images=img, return_tensors='pt')['pixel_values'].cuda()
+        # 避免使用GPU并使用较低精度
+        inputs = extractor(images=img, return_tensors='pt')['pixel_values']
         with torch.no_grad():
             emb = vit(pixel_values=inputs).last_hidden_state[:, 0, :].cpu().numpy()
+
+        # 释放输入变量以节省内存
+        del inputs
+        torch.cuda.empty_cache()  # 虽然不使用GPU，但保持代码兼容性
 
         input_attributes = find_most_similar_item_with_attributes(input_category, emb)
         input_color = input_attributes["color"]
@@ -649,22 +659,22 @@ async def recommend_complete_outfit(file: UploadFile = File(...)):
             6. 提供购买关键词以便用户搜索类似单品
             
             输出格式要求：
-            ## 📌 单品分析
+            📌 单品分析
             [用户单品的特点和搭配优势]
             
-            ## 👗 搭配建议
+            👗 搭配建议
             [详细说明每个推荐单品的搭配理由]
             
-            ## 💄 风格定位
+            💄 风格定位
             [整体搭配的风格描述]
             
-            ## 🎯 适用场景
+            🎯 适用场景
             [适合的穿着场景]
             
-            ## 🎨 个性调整
+            🎨 个性调整
             [个性化调整建议]
             
-            ## 🛍️ 购买指南
+            🛍️ 购买指南
             [购买关键词，帮助用户搜索类似单品]"""
 
 
