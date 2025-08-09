@@ -1,9 +1,13 @@
 # Python backend
 __pycache__/
 .env
-venv/
-logs/
-
+.venv/
+app.log
+data/images
+data/fashiongen_256_256_train.h5
+data/fashiongen_256_256_validation.h5
+outputs/train
+outputs/val
 
 # Node frontend
 node_modules/

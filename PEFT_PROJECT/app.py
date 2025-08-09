@@ -78,8 +78,10 @@ def load_models():
     # 加载 ViT 特征提取器
     extractor = ViTImageProcessor.from_pretrained('/data/google/vit-base-patch16-224')
 
-    # 加载基础 ViT 模型
-    vit = ViTModel.from_pretrained('/data/google/vit-base-patch16-224')
+    # 加载基础 ViT 模型 (使用8位量化)
+    vit = ViTModel.from_pretrained('/data/google/vit-base-patch16-224',
+                                   load_in_8bit=True,
+                                   device_map="auto")
 
     # 加载使用 LoRA 微调的最佳模型权重
     try:
@@ -97,7 +99,7 @@ def load_models():
         safe_log_info(f"Failed to load LoRA model: {e}")
     vit.eval()  # 移除.cuda()，在CPU上运行
 
-    # 加载本地微调的文案生成模型 (Prompt Tuning)
+    # 加载本地微调的文案生成模型 (Prompt Tuning) 使用8位量化
     try:
         safe_log_info("Loading fine-tuned text generation model...")
         base_model_name = '/data/Qwen3-0.6B'
@@ -105,13 +107,14 @@ def load_models():
         if text_tokenizer.pad_token is None:
             text_tokenizer.pad_token = text_tokenizer.eos_token
 
-        # 使用更低的精度加载模型以节省内存
+        # 使用8位量化加载模型以节省内存
         base_model = AutoModelForCausalLM.from_pretrained(
             base_model_name,
             trust_remote_code=True,
-            torch_dtype=torch.float16,  # 保持float16以节省内存
+            load_in_8bit=True,  # 使用8位量化
+            device_map="auto",  # 自动设备映射
             low_cpu_mem_usage=True  # 减少CPU内存使用
-        )  # 移除.cuda()，在CPU上运行
+        )
 
         # 检查是否存在训练后最好的模型
         best_model_path = 'outputs/qwen3_0.6b_prompt_best'
@@ -362,7 +365,7 @@ def search_items_by_category(category: str, input_embedding: np.ndarray, limit: 
         search_results = coll.search(
             input_embedding,
             'embedding',
-            param={"metric_type": "IP", "params": {"nprobe": 128}},
+            param={"metric_type": "IP", "params": {"nprobe": 32}}, # 进一步降低nprobe
             limit=limit,
             expr=f"category == '{category}'",
             output_fields=['image_name', 'color', 'shape', 'material']
@@ -397,7 +400,7 @@ def get_complementary_items(input_category: str, input_embedding: np.ndarray,
     safe_log_info(f"Finding complementary items for {input_category}, looking for: {complementary_categories}")
 
     for category in complementary_categories:
-        items = search_items_by_category(category, input_embedding, limit=50)
+        items = search_items_by_category(category, input_embedding, limit=30) # 降低limit
         if not items:
             safe_log_info(f"No items found for category {category}")
             continue
@@ -406,67 +409,119 @@ def get_complementary_items(input_category: str, input_embedding: np.ndarray,
 
         for item in items:
             score = item['distance']
+
+            # 处理颜色匹配
             if input_color != 'unknown' and item['color'] != 'unknown':
-                if input_color == item['color']:
-                    score += 0.15
-                elif input_color in ['black', 'white', 'gray', 'silver', 'grey'] and item['color'] in ['black', 'white',
-                                                                                                       'gray', 'silver',
-                                                                                                       'grey']:
-                    score += 0.1
-                elif input_color in ['red', 'pink', 'burgundy', 'maroon'] and item['color'] in ['red', 'pink',
-                                                                                                'burgundy', 'maroon']:
-                    score += 0.1
-                elif input_color in ['blue', 'navy', 'indigo', 'teal'] and item['color'] in ['blue', 'navy', 'indigo',
-                                                                                             'teal']:
-                    score += 0.1
-                elif input_color in ['green', 'olive', 'lime'] and item['color'] in ['green', 'olive', 'lime']:
-                    score += 0.1
-                elif input_color in ['brown', 'beige', 'tan', 'camel'] and item['color'] in ['brown', 'beige', 'tan',
-                                                                                             'camel']:
-                    score += 0.1
-                elif input_color in ['yellow', 'orange', 'coral'] and item['color'] in ['yellow', 'orange', 'coral']:
-                    score += 0.1
-                elif input_color in ['purple', 'violet', 'lavender'] and item['color'] in ['purple', 'violet',
-                                                                                           'lavender']:
-                    score += 0.1
-                elif (input_color in ['black', 'white', 'gray', 'silver', 'grey'] and item['color'] not in ['black',
-                                                                                                            'white',
-                                                                                                            'gray',
-                                                                                                            'silver',
-                                                                                                            'grey']) or (
-                        input_color not in ['black', 'white', 'gray', 'silver', 'grey'] and item['color'] in ['black',
-                                                                                                              'white',
-                                                                                                              'gray',
-                                                                                                              'silver',
-                                                                                                              'grey']):
+                # 将逗号分隔的颜色字符串转换为列表
+                input_colors = input_color.split(',')
+                item_colors = item['color'].split(',')
+
+                # 计算颜色匹配度
+                color_match = False
+                for in_color in input_colors:
+                    for item_color in item_colors:
+                        if in_color == item_color:
+                            score += 0.15
+                            color_match = True
+                            break
+                        elif in_color in ['black', 'white', 'gray', 'silver', 'grey'] and item_color in ['black',
+                                                                                                         'white',
+                                                                                                         'gray',
+                                                                                                         'silver',
+                                                                                                         'grey']:
+                            score += 0.1
+                            color_match = True
+                            break
+                        elif in_color in ['red', 'pink', 'burgundy', 'maroon'] and item_color in ['red', 'pink',
+                                                                                                  'burgundy', 'maroon']:
+                            score += 0.1
+                            color_match = True
+                            break
+                        elif in_color in ['blue', 'navy', 'indigo', 'teal'] and item_color in ['blue', 'navy', 'indigo',
+                                                                                               'teal']:
+                            score += 0.1
+                            color_match = True
+                            break
+                        elif in_color in ['green', 'olive', 'lime'] and item_color in ['green', 'olive', 'lime']:
+                            score += 0.1
+                            color_match = True
+                            break
+                        elif in_color in ['brown', 'beige', 'tan', 'camel'] and item_color in ['brown', 'beige', 'tan',
+                                                                                               'camel']:
+                            score += 0.1
+                            color_match = True
+                            break
+                        elif in_color in ['yellow', 'orange', 'coral'] and item_color in ['yellow', 'orange', 'coral']:
+                            score += 0.1
+                            color_match = True
+                            break
+                        elif in_color in ['purple', 'violet', 'lavender'] and item_color in ['purple', 'violet',
+                                                                                             'lavender']:
+                            score += 0.1
+                            color_match = True
+                            break
+
+                # 如果没有精确匹配但都是中性色，给予小奖励
+                if not color_match and any(c in ['black', 'white', 'gray', 'silver', 'grey'] for c in input_colors) and \
+                        any(c in ['black', 'white', 'gray', 'silver', 'grey'] for c in item_colors):
                     score += 0.05
+
+            # 处理款式匹配
             if input_shape != 'unknown' and item['shape'] != 'unknown':
-                if input_shape == item['shape']:
-                    score += 0.1
-                elif input_shape in ['skinny', 'slim', 'tight'] and item['shape'] in ['fitted', 'slim', 'tailored']:
-                    score += 0.08
-                elif input_shape in ['loose', 'oversized', 'relaxed'] and item['shape'] in ['loose', 'oversized',
-                                                                                            'relaxed']:
-                    score += 0.08
-                elif input_shape in ['straight', 'regular'] and item['shape'] in ['straight', 'regular', 'classic']:
-                    score += 0.08
-                elif input_shape in ['bootcut', 'flare', 'wide'] and item['shape'] in ['bootcut', 'flare', 'wide']:
-                    score += 0.08
+                # 将逗号分隔的款式字符串转换为列表
+                input_shapes = input_shape.split(',')
+                item_shapes = item['shape'].split(',')
+
+                # 计算款式匹配度
+                for in_shape in input_shapes:
+                    for item_shape in item_shapes:
+                        if in_shape == item_shape:
+                            score += 0.1
+                            break
+                        elif in_shape in ['skinny', 'slim', 'tight'] and item_shape in ['fitted', 'slim', 'tailored']:
+                            score += 0.08
+                            break
+                        elif in_shape in ['loose', 'oversized', 'relaxed'] and item_shape in ['loose', 'oversized',
+                                                                                              'relaxed']:
+                            score += 0.08
+                            break
+                        elif in_shape in ['straight', 'regular'] and item_shape in ['straight', 'regular', 'classic']:
+                            score += 0.08
+                            break
+                        elif in_shape in ['bootcut', 'flare', 'wide'] and item_shape in ['bootcut', 'flare', 'wide']:
+                            score += 0.08
+                            break
+
+            # 处理材质匹配
             if input_material != 'unknown' and item['material'] != 'unknown':
-                if input_material == item['material']:
-                    score += 0.1
-                elif input_material in ['cotton', 'linen', 'jersey'] and item['material'] in ['cotton', 'linen',
-                                                                                              'jersey']:
-                    score += 0.08
-                elif input_material in ['leather', 'suede'] and item['material'] in ['leather', 'suede']:
-                    score += 0.08
-                elif input_material in ['wool', 'cashmere', 'silk'] and item['material'] in ['wool', 'cashmere',
-                                                                                             'silk']:
-                    score += 0.08
-                elif input_material in ['denim'] and item['material'] in ['cotton', 'jersey']:
-                    score += 0.05
-                elif input_material in ['polyester', 'nylon'] and item['material'] in ['polyester', 'nylon']:
-                    score += 0.05
+                # 将逗号分隔的材质字符串转换为列表
+                input_materials = input_material.split(',')
+                item_materials = item['material'].split(',')
+
+                # 计算材质匹配度
+                for in_material in input_materials:
+                    for item_material in item_materials:
+                        if in_material == item_material:
+                            score += 0.1
+                            break
+                        elif in_material in ['cotton', 'linen', 'jersey'] and item_material in ['cotton', 'linen',
+                                                                                                'jersey']:
+                            score += 0.08
+                            break
+                        elif in_material in ['leather', 'suede'] and item_material in ['leather', 'suede']:
+                            score += 0.08
+                            break
+                        elif in_material in ['wool', 'cashmere', 'silk'] and item_material in ['wool', 'cashmere',
+                                                                                               'silk']:
+                            score += 0.08
+                            break
+                        elif in_material in ['denim'] and item_material in ['cotton', 'jersey']:
+                            score += 0.05
+                            break
+                        elif in_material in ['polyester', 'nylon'] and item_material in ['polyester', 'nylon']:
+                            score += 0.05
+                            break
+
             item['match_score'] = score
 
         # 找到最高分的项目
@@ -485,8 +540,8 @@ def find_most_similar_item_with_attributes(category: str, embedding: np.ndarray)
         search_results = coll.search(
             embedding,
             'embedding',
-            param={"metric_type": "IP", "params": {"nprobe": 128}},
-            limit=20,
+            param={"metric_type": "IP", "params": {"nprobe": 128}}, # 降低nprobe
+            limit=30, # 降低limit
             expr=f"category == '{category}'",
             output_fields=['color', 'shape', 'material']
         )
@@ -524,12 +579,16 @@ async def recommend_complete_outfit(file: UploadFile = File(...)):
 
         # 释放输入变量以节省内存
         del inputs
-        torch.cuda.empty_cache()  # 虽然不使用GPU，但保持代码兼容性
+        import gc
+        gc.collect()  # 强制垃圾回收
 
         input_attributes = find_most_similar_item_with_attributes(input_category, emb)
         input_color = input_attributes["color"]
         input_shape = input_attributes["shape"]
         input_material = input_attributes["material"]
+
+        # 记录输入属性
+        safe_log_info(f"Input attributes - Color: {input_color}, Shape: {input_shape}, Material: {input_material}")
 
         recommendations = get_complementary_items(
             input_category, emb, input_color, input_shape, input_material)
@@ -644,12 +703,12 @@ async def recommend_complete_outfit(file: UploadFile = File(...)):
             - 颜色：{input_color}
             - 款式：{input_shape if input_shape != 'unknown' else '未识别'}
             - 材质：{input_material if input_material != 'unknown' else '未识别'}
-            
+
             检索到的推荐搭配衣品或上游本地大模型生成的推荐搭配要点：
             {outline_text}
-            
+
             注意上游模型生产内容会有一些无用信息或错误信息，请正确识别保留有效的信息，作为穿搭要点：
-            
+
             请用中文提供详细且实用的穿搭建议，要求：
             1. 首先描述用户单品的特点和搭配优势
             2. 详细说明每个推荐单品的搭配理由
@@ -657,26 +716,25 @@ async def recommend_complete_outfit(file: UploadFile = File(...)):
             4. 提供适合的穿着场景
             5. 给出个性化调整建议
             6. 提供购买关键词以便用户搜索类似单品
-            
+
             输出格式要求：
             📌 单品分析
             [用户单品的特点和搭配优势]
-            
+
             👗 搭配建议
             [详细说明每个推荐单品的搭配理由]
-            
+
             💄 风格定位
             [整体搭配的风格描述]
-            
+
             🎯 适用场景
             [适合的穿着场景]
-            
+
             🎨 个性调整
             [个性化调整建议]
-            
+
             🛍️ 购买指南
             [购买关键词，帮助用户搜索类似单品]"""
-
 
             outfit_text = call_qwen_api(final_prompt)
         else:
@@ -716,7 +774,8 @@ def main():
         port=8000,
         reload=False,
         workers=1,
-        log_level="info"
+        log_level="info",
+        timeout_keep_alive=30  # 减少keep-alive超时
     )
 
 

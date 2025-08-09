@@ -39,10 +39,10 @@ def connect_milvus(max_retries=5, retry_delay=5):
     schema = client.create_schema()
     schema.add_field("id", DataType.INT64, is_primary=True, auto_id=True)
     schema.add_field("image_name", DataType.VARCHAR, max_length=255)
-    schema.add_field("category", DataType.VARCHAR, max_length=100)
-    schema.add_field("color", DataType.VARCHAR, max_length=100)
-    schema.add_field("shape", DataType.VARCHAR, max_length=100)
-    schema.add_field("material", DataType.VARCHAR, max_length=100)
+    schema.add_field("category", DataType.VARCHAR, max_length=1000)
+    schema.add_field("color", DataType.VARCHAR, max_length=1000)
+    schema.add_field("shape", DataType.VARCHAR, max_length=1000)
+    schema.add_field("material", DataType.VARCHAR, max_length=1000)
     schema.add_field("embedding", DataType.FLOAT_VECTOR, dim=768)
 
     # 准备索引参数
