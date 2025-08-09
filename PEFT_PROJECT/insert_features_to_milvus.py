@@ -114,79 +114,262 @@ def extract_attributes_from_description(description: str) -> dict:
 
     # 颜色关键词
     color_keywords = {
-        'black': ['black', '黑色'],
-        'white': ['white', '白色'],
-        'red': ['red', '红色'],
-        'blue': ['blue', '蓝色', 'indigo', 'navy'],
-        'green': ['green', '绿色'],
-        'yellow': ['yellow', '黄色'],
-        'purple': ['purple', '紫色'],
-        'pink': ['pink', '粉色'],
-        'orange': ['orange', '橙色'],
-        'brown': ['brown', '棕色', 'beige', 'khaki', 'taupe'],
-        'gray': ['gray', 'grey', '灰色', 'charcoal', 'heather'],
-        'silver': ['silver', '银色'],
-        'gold': ['gold', '金色']
+        'black': ['black', '黑色', 'charcoal', 'onyx', 'obsidian', 'ebony'],
+        'white': ['white', '白色', 'ivory', 'off-white', 'cream', 'snow', 'eggshell'],
+        'red': ['red', '红色', 'burgundy', 'crimson', 'scarlet', 'maroon', 'ruby', 'cardinal'],
+        'blue': ['blue', '蓝色', 'indigo', 'navy', 'azure', 'cerulean', 'sapphire', 'turquoise', 'robin-egg',
+                 'sky blue'],
+        'green': ['green', '绿色', 'olive', 'emerald', 'lime', 'forest', 'mint', 'teal', 'sea green', 'jade'],
+        'yellow': ['yellow', '黄色', 'golden', 'gold', 'mustard', 'amber', 'sunshine', 'canary', 'lemon'],
+        'purple': ['purple', '紫色', 'violet', 'lavender', 'mauve', 'plum', 'orchid'],
+        'pink': ['pink', '粉色', 'rose', 'coral', 'fuchsia', 'magenta', 'salmon', 'blush'],
+        'orange': ['orange', '橙色', 'coral', 'rust', 'copper', 'apricot', 'tangerine'],
+        'brown': ['brown', '棕色', 'beige', 'khaki', 'taupe', 'tan', 'camel', 'bronze', 'cognac', 'mahogany', 'coffee'],
+        'gray': ['gray', 'grey', '灰色', 'charcoal', 'heather', 'slate', 'silver', 'gunmetal'],
+        'multicolor': ['multicolored', 'multi-color', 'multi', 'variegated', 'heathered', 'tonal', 'tones'],
+        'metallic': ['metallic', 'gunmetal-tone', 'silver-tone', 'gold-tone'],
+        'rainbow': ['rainbow', 'prismatic']
     }
 
     # 查找颜色
     desc_lower = description.lower()
+    found_colors = []
     for color, keywords in color_keywords.items():
         if any(keyword in desc_lower for keyword in keywords):
-            attributes['color'] = color
-            break
+            found_colors.append(color)
 
-    # 款式关键词
+    # 如果找到多个颜色，使用逗号连接；如果没找到，保持'unknown'
+    if found_colors:
+        attributes['color'] = ','.join(found_colors)
+
+    # 款式关键词（包括图案、设计特征、闭合方式等）
     shape_keywords = {
+        # 裤型和基本款式
         'skinny': ['skinny', '紧身'],
-        'slim': ['slim', '修身'],
-        'regular': ['regular', '常规'],
-        'loose': ['loose', '宽松'],
+        'slim': ['slim', '修身', 'narrow', 'tailored'],
+        'regular': ['regular', '常规', 'classic'],
+        'loose': ['loose', '宽松', 'relaxed', 'oversized', 'baggy'],
         'straight': ['straight', '直筒'],
         'tapered': ['tapered', '锥形'],
         'bootcut': ['bootcut', '靴型'],
         'flare': ['flare', '喇叭'],
-        'wide': ['wide', '宽'],
-        'narrow': ['narrow', '窄'],
-        'oversized': ['oversized', '超大号'],
+        'wide': ['wide', '宽', 'wide-leg'],
+        'cropped': ['cropped', '截短', 'short'],
         'fitted': ['fitted', '合身'],
-        'relaxed': ['relaxed', '宽松'],
-        'cropped': ['cropped', '截短'],
         'high-waisted': ['high-waisted', '高腰'],
         'low-rise': ['low-rise', '低腰'],
-        'mid-rise': ['mid-rise', '中腰']
+        'mid-rise': ['mid-rise', '中腰'],
+        'drop-crotch': ['drop crotch', 'drop-crotch'],
+        'pleated': ['pleated', '褶裥'],
+        'boxy': ['boxy', '箱型'],
+        'long': ['long', '长款'],
+        'short': ['short', '短款'],
+
+        # 图案
+        'floral': ['floral', '花卉', 'flower'],
+        'camo': ['camo', 'camouflage', '迷彩'],
+        'polka dot': ['polka dot', '圆点'],
+        'stripe': ['stripe', '条纹', 'striped'],
+        'plaid': ['plaid', '格子', 'check'],
+        'houndstooth': ['houndstooth', '千鸟格'],
+        'gingham': ['gingham', '方格'],
+        'herringbone': ['herringbone', '人字纹'],
+        'paisley': ['paisley', '佩斯利'],
+        'animal print': ['animal print', '豹纹', '蛇纹', '斑马纹', 'leopard', 'snake', 'zebra'],
+        'geometric': ['geometric', '几何'],
+        'anchor': ['anchor', '锚'],
+        'skull': ['skull', '骷髅'],
+        'tie-dye': ['tie-dye', '扎染'],
+        'ombre': ['ombre', '渐变'],
+        'diamond': ['diamond', '菱形'],
+
+        # 领型设计
+        'crewneck': ['crewneck', '圆领'],
+        'v-neck': ['v-neck', 'v领'],
+        'spread collar': ['spread collar', '宽领'],
+        'button-down collar': ['button-down collar', '纽扣领'],
+        'shawl collar': ['shawl collar', '披肩领'],
+        'notched lapel': ['notched lapel', '缺口领'],
+        'band collar': ['band collar', '立领'],
+        'hooded': ['hooded', '连帽'],
+        'scoopneck': ['scoopneck', '挖空领'],
+
+        # 袖型设计
+        'long sleeve': ['long sleeve', '长袖'],
+        'short sleeve': ['short sleeve', '短袖'],
+        'sleeveless': ['sleeveless', '无袖'],
+        'raglan sleeves': ['raglan sleeves', '插肩袖'],
+
+        # 口袋设计
+        'five-pocket': ['five-pocket', '五口袋'],
+        'flap pockets': ['flap pockets', '带盖口袋'],
+        'welt pockets': ['welt pockets', '贴袋'],
+        'breast pocket': ['breast pocket', '胸袋'],
+        'patch pockets': ['patch pockets', '贴边口袋'],
+
+        # 闭合方式
+        'button closure': ['button closure', 'button-down', '纽扣', '纽扣闭合'],
+        'zip closure': ['zip closure', 'zip', 'zippered', '拉链'],
+        'snap-stud closure': ['snap-stud', '按扣'],
+        'drawstring closure': ['drawstring', '抽绳'],
+        'elasticized': ['elasticized', '弹性'],
+
+        # 特殊设计特征
+        'distressed': ['distressed', '破洞', '磨损'],
+        'embroidered': ['embroidered', '刺绣'],
+        'printed': ['printed', '印花'],
+        'knit': ['knit', '针织'],
+        'ribbed': ['ribbed', '罗纹'],
+        'sheer': ['sheer', '透明'],
+        'layered': ['layered', '层次'],
+        'asymmetrical': ['asymmetrical', '不对称'],
+        'ruched': ['ruched', '褶皱'],
+        'frayed': ['frayed', '毛边'],
+        'pleated': ['pleated', '百褶'],
+        'tuxedo': ['tuxedo', '燕尾服'],
+        'double-breasted': ['double-breasted', '双排扣'],
+        'single-breasted': ['single-breasted', '单排扣'],
+        'peplum': ['peplum', '荷叶边'],
+        'belted': ['belted', '系带'],
+        'cutout': ['cutout', '镂空'],
+        'ruffled': ['ruffled', '褶边'],
+        'padded': ['padded', '填充'],
+        'vented': ['vented', '开衩'],
+        'lined': ['lined', '衬里'],
+        'seamed': ['seamed', '接缝'],
+        'gathered': ['gathered', '皱褶'],
+        'draped': ['draped', '垂坠'],
+        'structured': ['structured', '结构式'],
+        'deconstructed': ['deconstructed', '解构'],
+        'tapered': ['tapered', '收窄'],
+        'cinched': ['cinched', '束腰'],
+        'tiered': ['tiered', '分层'],
+        'wrap': ['wrap', '裹身'],
+        'cold shoulder': ['cold shoulder', '露肩'],
+        'off-shoulder': ['off-shoulder', '露肩'],
+        'halter': ['halter', '绕颈'],
+        'strapless': ['strapless', '无肩带'],
+        'backless': ['backless', '露背'],
+        'illusion': ['illusion', '透视'],
+        'cutwork': ['cutwork', '雕花'],
+        'lace-up': ['lace-up', '系带'],
+        'tie-front': ['tie-front', '系带前襟'],
+        'peekaboo': ['peekaboo', '透视'],
+        'mesh': ['mesh', '网眼'],
+        'perforated': ['perforated', '穿孔'],
+        'slit': ['slit', '开衩'],
+        'split': ['split', '分叉'],
+        'paneled': ['paneled', '拼接'],
+        'colorblocked': ['colorblocked', '色块'],
+        'marbleized': ['marbleized', '大理石纹'],
+        'textured': ['textured', '纹理'],
+        'embossed': ['embossed', '压花'],
+        'quilted': ['quilted', '绗缝'],
+        'puckered': ['puckered', '皱褶'],
+        'smocked': ['smocked', '皱褶'],
+        'tucked': ['tucked', ' tucked'],
+        'layered': ['layered', '叠层'],
+        'asymmetrical': ['asymmetrical', '不对称'],
+        'irregular': ['irregular', '不规则'],
+        'raw': ['raw', '毛边'],
+        'washed': ['washed', '水洗'],
+        'faded': ['faded', '褪色'],
+        'bleached': ['bleached', '漂白'],
+        'acid-washed': ['acid-washed', '酸洗'],
+        'whiskering': ['whiskering', '猫须'],
+        'sandblasted': ['sandblasted', '喷砂'],
+        'hand-distressed': ['hand-distressed', '手工做旧'],
+        'paint splatter': ['paint splatter', '油漆泼溅'],
+        'paint speckling': ['paint speckling', '油漆斑点'],
+        'contrast': ['contrast', '对比'],
+        'tonal': ['tonal', '同色'],
+        'reversible': ['reversible', '双面'],
+        'convertible': ['convertible', '可转换'],
+        'adjustable': ['adjustable', '可调节'],
+        'removable': ['removable', '可拆卸'],
+        'detachable': ['detachable', '可拆卸'],
+        'interchangeable': ['interchangeable', '可互换']
     }
 
-    # 查找款式
+    # 查找款式（支持多个）
+    found_shapes = []
     for shape, keywords in shape_keywords.items():
         if any(keyword in desc_lower for keyword in keywords):
-            attributes['shape'] = shape
-            break
+            found_shapes.append(shape)
+
+    # 如果找到多个款式，使用逗号连接；如果没找到，保持'unknown'
+    if found_shapes:
+        attributes['shape'] = ','.join(found_shapes)
 
     # 材质关键词
     material_keywords = {
-        'cotton': ['cotton', '棉', 'cotton-wool'],
-        'denim': ['denim', '牛仔', 'jeans'],
-        'silk': ['silk', '丝绸'],
-        'leather': ['leather', '皮革', 'lambskin', 'calfskin'],
-        'wool': ['wool', '羊毛', 'wool-mohair'],
-        'linen': ['linen', '亚麻'],
+        'cotton': ['cotton', '棉', 'cotton-wool', 'cotton-piqu\u00e9', 'cotton-linen'],
+        'denim': ['denim', '牛仔', 'jeans', 'buffed denim'],
+        'silk': ['silk', '丝绸', 'silken'],
+        'leather': ['leather', '皮革', 'lambskin', 'calfskin', 'suede', 'buffed leather', 'grained calfskin'],
+        'wool': ['wool', '羊毛', 'wool-mohair', 'cashmere', 'merino'],
+        'linen': ['linen', '亚麻', 'linen-cotton'],
         'polyester': ['polyester', '聚酯'],
         'nylon': ['nylon', '尼龙'],
-        'velvet': ['velvet', '天鹅绒'],
+        'velvet': ['velvet', '天鹅绒', 'velvety'],
         'suede': ['suede', '麂皮'],
         'flannel': ['flannel', '法兰绒'],
-        'fleece': ['fleece', '抓绒'],
+        'fleece': ['fleece', '抓绒', 'fleecy'],
         'cashmere': ['cashmere', '羊绒'],
         'jersey': ['jersey', '针织'],
-        'satin': ['satin', '缎子']
+        'satin': ['satin', '缎子'],
+        'neoprene': ['neoprene', '氯丁橡胶'],
+        'ribbed': ['ribbed', '罗纹'],
+        'sheer': ['sheer', '透明'],
+        'lace': ['lace', '蕾丝'],
+        'mesh': ['mesh', '网眼'],
+        'corduroy': ['corduroy', '灯芯绒'],
+        'chenille': ['chenille', '绳绒'],
+        'tweed': ['tweed', '粗花呢'],
+        'jacquard': ['jacquard', '提花'],
+        'plaid': ['plaid', '格子'],
+        'gabardine': ['gabardine', '华达呢'],
+        'chiffon': ['chiffon', '雪纺'],
+        'crepe': ['crepe', '绉纱'],
+        'twill': ['twill', '斜纹'],
+        'canvas': ['canvas', '帆布'],
+        'organza': ['organza', '欧根纱'],
+        'tulle': ['tulle', '塔夫绸'],
+        'voile': ['voile', '巴里纱'],
+        'muslin': ['muslin', '棉纱'],
+        'poplin': ['poplin', '府绸'],
+        'seersucker': ['seersucker', '泡泡纱'],
+        'terry': ['terry', '毛巾布'],
+        'waffle': ['waffle', '华夫格'],
+        'sherpa': ['sherpa', '雪帕尔'],
+        'felt': ['felt', '毛毡'],
+        'fur': ['fur', '毛皮'],
+        'faux fur': ['faux fur', '人造毛皮'],
+        'faux leather': ['faux leather', '人造革'],
+        'pleather': ['pleather', '皮面革'],
+        'spandex': ['spandex', '氨纶'],
+        'elastane': ['elastane', '弹性纤维'],
+        'rayon': ['rayon', '人造丝'],
+        'viscose': ['viscose', '粘胶纤维'],
+        'modal': ['modal', '莫代尔'],
+        'bamboo': ['bamboo', '竹纤维'],
+        'tencel': ['tencel', '天丝'],
+        'lyocell': ['lyocell', '莱赛尔'],
+        'acrylic': ['acrylic', '腈纶'],
+        'microfiber': ['microfiber', '超细纤维'],
+        'supplex': ['supplex', '超级莱卡'],
+        'cupro': ['cupro', '铜氨纤维']
     }
 
-    # 查找材质
+    # 查找材质（支持多个）
+    found_materials = []
     for material, keywords in material_keywords.items():
         if any(keyword in desc_lower for keyword in keywords):
-            attributes['material'] = material
-            break
+            found_materials.append(material)
+
+    # 如果找到多个材质，使用逗号连接；如果没找到，保持'unknown'
+    if found_materials:
+        attributes['material'] = ','.join(found_materials)
 
     return attributes
 
