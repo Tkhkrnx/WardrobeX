@@ -463,7 +463,67 @@ def insert_with_retry(coll, names: List, categories: List, colors: List, shapes:
     return False
 
 
-def extract_and_insert(model, processor, csv_path, sample_ratio=0.1, sample_count=None):
+def should_insert_record(category: str, color: str, shape: str, material: str) -> bool:
+    """
+    判断是否应该插入记录到Milvus
+
+    Args:
+        category: 类别
+        color: 颜色
+        shape: 款式
+        material: 材质
+
+    Returns:
+        bool: True表示应该插入，False表示不应该插入
+    """
+    # 不存储category为'unknown'的记录
+    if category == 'unknown':
+        return False
+
+    # 不存储color、shape、material都为'unknown'的记录
+    if color == 'unknown' and shape == 'unknown' and material == 'unknown':
+        return False
+
+    return True
+
+
+def filter_records_for_insertion(names: List, categories: List, colors: List, shapes: List, materials: List,
+                                 embs: List) -> tuple:
+    """
+    过滤掉不符合条件的记录
+
+    Args:
+        names: 图像名称列表
+        categories: 类别列表
+        colors: 颜色列表
+        shapes: 款式列表
+        materials: 材质列表
+        embs: 特征向量列表
+
+    Returns:
+        tuple: 过滤后的数据列表元组 (names, categories, colors, shapes, materials, embs)
+    """
+    filtered_names = []
+    filtered_categories = []
+    filtered_colors = []
+    filtered_shapes = []
+    filtered_materials = []
+    filtered_embs = []
+
+    for i in range(len(names)):
+        # 检查是否应该插入该记录
+        if should_insert_record(categories[i], colors[i], shapes[i], materials[i]):
+            filtered_names.append(names[i])
+            filtered_categories.append(categories[i])
+            filtered_colors.append(colors[i])
+            filtered_shapes.append(shapes[i])
+            filtered_materials.append(materials[i])
+            filtered_embs.append(embs[i])
+
+    return (filtered_names, filtered_categories, filtered_colors, filtered_shapes, filtered_materials, filtered_embs)
+
+
+def extract_and_insert(model, processor, csv_path, sample_ratio=0.15, sample_count=None):
     """
     提取特征并插入Milvus
 
@@ -471,7 +531,7 @@ def extract_and_insert(model, processor, csv_path, sample_ratio=0.1, sample_coun
         model: 模型
         processor: 图像处理器
         csv_path: CSV文件路径
-        sample_ratio: 采样比例 (0-1之间)
+        sample_ratio: 采样比例 (0-1之间)，默认0.15即15%
         sample_count: 采样数量 (如果指定，则优先使用此值)
     """
     try:
@@ -507,13 +567,14 @@ def extract_and_insert(model, processor, csv_path, sample_ratio=0.1, sample_coun
         print("[错误] 数据集为空，请检查路径和文件")
         return
 
-    # 随机采样数据
-    if sample_count is not None:
-        sample_size = min(sample_count, total_count)
-        print(f"[采样] 采样数量: {sample_size} 张图片")
-    else:
-        sample_size = int(total_count * sample_ratio)
-        print(f"[采样] 采样比例: {sample_ratio * 100:.1f}%, 采样数量: {sample_size} 张图片")
+    # 计算目标插入数量（总数据的15%）
+    target_insert_count = int(total_count * 0.15)
+    print(f"[目标] 计划插入 {target_insert_count} 条记录（总数据的15%）")
+
+    # 随机采样数据（采样更多数据以确保过滤后能达到目标数量）
+    # 采样2倍的目标数量，以确保过滤后仍能达到目标
+    sample_size = min(int(target_insert_count * 5), total_count)
+    print(f"[采样] 采样数量: {sample_size} 张图片")
 
     # 生成随机索引
     indices = list(range(total_count))
@@ -660,24 +721,62 @@ def extract_and_insert(model, processor, csv_path, sample_ratio=0.1, sample_coun
             # 批量插入以避免内存问题
             if len(names) >= insert_batch_size:
                 if names:
-                    success = insert_with_retry(coll, names, categories, colors, shapes, materials, embs, max_retries=3)
-                    if success:
-                        total_inserted += len(names)
-                        print(f"[Milvus] 插入向量 {len(names)} 条，总计: {total_inserted}")
+                    # 过滤掉不符合条件的记录
+                    filtered_names, filtered_categories, filtered_colors, filtered_shapes, filtered_materials, filtered_embs = \
+                        filter_records_for_insertion(names, categories, colors, shapes, materials, embs)
+
+                    if filtered_names:
+                        success = insert_with_retry(coll, filtered_names, filtered_categories, filtered_colors,
+                                                    filtered_shapes, filtered_materials, filtered_embs, max_retries=3)
+                        if success:
+                            inserted_count = len(filtered_names)
+                            total_inserted += inserted_count
+                            print(f"[Milvus] 插入向量 {inserted_count} 条，总计: {total_inserted}")
+
+                            # 如果已达到目标数量，停止处理
+                            if total_inserted >= target_insert_count:
+                                print(f"[完成] 已达到目标插入数量 {target_insert_count}，停止处理")
+                                break
+                        else:
+                            print(f"[错误] 插入失败，退出")
+                            return
                     else:
-                        print(f"[错误] 插入失败，退出")
-                        return
+                        print("[过滤] 没有符合条件的数据需要插入")
+
                 names, categories, colors, shapes, materials, embs = [], [], [], [], [], []
 
-    # 插入剩余的数据
-    if names:
-        success = insert_with_retry(coll, names, categories, colors, shapes, materials, embs, max_retries=3)
-        if success:
-            total_inserted += len(names)
-            print(f"[Milvus] 插入向量 {len(names)} 条，总计: {total_inserted}")
+            # 如果已达到目标数量，停止处理
+            if total_inserted >= target_insert_count:
+                break
+
+    # 插入剩余的数据（如果还未达到目标数量）
+    if names and total_inserted < target_insert_count:
+        # 过滤掉不符合条件的记录
+        filtered_names, filtered_categories, filtered_colors, filtered_shapes, filtered_materials, filtered_embs = \
+            filter_records_for_insertion(names, categories, colors, shapes, materials, embs)
+
+        if filtered_names:
+            # 如果剩余数据超过目标数量，只插入需要的部分
+            remaining_needed = target_insert_count - total_inserted
+            if len(filtered_names) > remaining_needed:
+                filtered_names = filtered_names[:remaining_needed]
+                filtered_categories = filtered_categories[:remaining_needed]
+                filtered_colors = filtered_colors[:remaining_needed]
+                filtered_shapes = filtered_shapes[:remaining_needed]
+                filtered_materials = filtered_materials[:remaining_needed]
+                filtered_embs = filtered_embs[:remaining_needed]
+
+            success = insert_with_retry(coll, filtered_names, filtered_categories, filtered_colors,
+                                        filtered_shapes, filtered_materials, filtered_embs, max_retries=3)
+            if success:
+                inserted_count = len(filtered_names)
+                total_inserted += inserted_count
+                print(f"[Milvus] 插入向量 {inserted_count} 条，总计: {total_inserted}")
+            else:
+                print(f"[错误] 插入剩余数据失败")
+                return
         else:
-            print(f"[错误] 插入剩余数据失败")
-            return
+            print("[过滤] 没有符合条件的数据需要插入")
 
     total_time = time.time() - start_time
     print(f"[Milvus] 数据插入完成，共处理 {total_inserted} 条记录")
