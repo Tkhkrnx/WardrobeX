@@ -212,6 +212,9 @@ def load_models():
         text_model = None
         load_success = False
 
+        # 获取量化参数
+        quant_kwargs = _get_quant_kwargs()
+
         # 尝试使用量化加载（4-bit 或 8-bit）
         try:
             # AutoModelForCausalLM supports quantization_config or load_in_8bit based on transformers/bnb version
@@ -476,6 +479,75 @@ def detect_clothing_category(image: Image.Image) -> str:
 
     safe_log_info("No valid detection found, returning 'unknown'")
     return 'unknown'
+
+
+def crop_clothing_images(image: Image.Image) -> List[Image.Image]:
+    """
+    使用YOLO模型裁剪衣物图像，返回裁剪后的图像列表
+    """
+    global class_names, yolo_model
+
+    # 如果YOLO模型未加载，返回空列表
+    if yolo_model is None:
+        safe_log_info("YOLO model not loaded for cropping")
+        return []
+
+    try:
+        # 将PIL图像转换为OpenCV格式（在内存中）
+        # 先转换为numpy数组
+        img_array = np.array(image)
+        # RGB转BGR（PIL使用RGB，OpenCV使用BGR）
+        cv_image = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+
+        safe_log_info(f"Cropping - Input image size: {img_array.shape}")
+
+        # 使用YOLO模型进行检测
+        results = yolo_model.predict(source=cv_image, conf=0.1)
+
+        cropped_images = []
+
+        # 获取检测到的边界框
+        for r in results:
+            if hasattr(r, 'boxes') and r.boxes is not None and len(r.boxes) > 0:
+                boxes = r.boxes.xyxy.cpu().numpy()  # 获取边界框坐标
+                confs = r.boxes.conf.cpu().numpy()  # 获取置信度
+                classes = r.boxes.cls.cpu().numpy()  # 获取类别
+
+                # 按置信度排序
+                sorted_indices = np.argsort(confs)[::-1]  # 降序排列
+
+                # 根据边界框裁剪图像
+                for idx in sorted_indices:
+                    box = boxes[idx]
+                    conf = confs[idx]
+                    class_id = int(classes[idx])
+
+                    # 获取边界框坐标
+                    x1, y1, x2, y2 = map(int, box)
+
+                    # 确保坐标在图像范围内
+                    x1 = max(0, x1)
+                    y1 = max(0, y1)
+                    x2 = min(img_array.shape[1], x2)
+                    y2 = min(img_array.shape[0], y2)
+
+                    # 裁剪图像（注意：PIL和OpenCV的坐标系统不同）
+                    cropped_array = img_array[y1:y2, x1:x2]
+
+                    # 将numpy数组转换回PIL图像
+                    if cropped_array.size > 0:  # 确保裁剪区域不为空
+                        cropped_image = Image.fromarray(cropped_array)
+                        cropped_images.append(cropped_image)
+                        safe_log_info(
+                            f"Cropped image {len(cropped_images)} with confidence {conf}, class {class_names.get(class_id, 'unknown')}")
+
+        safe_log_info(f"Total cropped images: {len(cropped_images)}")
+        return cropped_images
+
+    except Exception as e:
+        safe_log_info(f"Error in crop_clothing_images: {e}")
+        safe_log_info(traceback.format_exc())
+        return []
 
 def get_complementary_categories(input_category: str) -> List[str]:
     complementary_map = {
@@ -745,14 +817,25 @@ def find_most_similar_item_with_attributes(category: str, embedding: np.ndarray)
 async def recommend_complete_outfit(file: UploadFile = File(...)):
     start_time = time.time()
     try:
-        img = Image.open(io.BytesIO(await file.read())).convert('RGB')
+        img = Image.open(io.BytesOf(await file.read())).convert('RGB')
         safe_log_info(f"Uploaded image size: {img.size}")
 
-        input_category = detect_clothing_category(img)
+        # 使用YOLO模型裁剪图像，获取裁剪后的衣物图像
+        cropped_images = crop_clothing_images(img)
+
+        # 如果有裁剪出的图像，使用第一张；否则使用原始图像
+        if cropped_images and len(cropped_images) > 0:
+            processed_img = cropped_images[0]
+            safe_log_info(f"Using first cropped image, size: {processed_img.size}")
+        else:
+            processed_img = img
+            safe_log_info("No cropped images found, using original image")
+
+        input_category = detect_clothing_category(processed_img)
         safe_log_info(f"Detected category: {input_category}")
 
         # 避免使用GPU并使用较低精度
-        inputs = extractor(images=img, return_tensors='pt')['pixel_values']
+        inputs = extractor(images=processed_img, return_tensors='pt')['pixel_values']
         with torch.no_grad():
             # 在一些量化加载下，模型可能在 GPU/CPU 的不同位置，直接调用并把结果转到 CPU
             emb = vit(pixel_values=inputs).last_hidden_state[:, 0, :].cpu().numpy()
