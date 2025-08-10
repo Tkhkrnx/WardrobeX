@@ -100,10 +100,6 @@ app = FastAPI(lifespan=lifespan)
 
 
 def _get_quant_kwargs():
-    """
-    返回供 from_pretrained 使用的量化相关参数字典。
-    支持 4-bit (nf4) 与 8-bit 两种路径。
-    """
     quant_kwargs = {}
     if QUANT_BITS == "4":
         try:
@@ -123,8 +119,6 @@ def _get_quant_kwargs():
         except Exception as e:
             safe_log_info(f"Failed to create 4-bit BitsAndBytesConfig: {e}")
             safe_log_info("Falling back to 8-bit configuration.")
-            # fallthrough to 8-bit
-    # 默认或 QUANT_BITS == "8"
     try:
         quant_kwargs.update({
             "load_in_8bit": True,
@@ -153,20 +147,21 @@ def load_models():
         safe_log_info(f"Failed to load ViTImageProcessor: {e}")
         safe_log_info(traceback.format_exc())
 
-    # 加载基础 ViT 模型 (使用float32以确保与Milvus兼容)
+    # 加载基础 ViT 模型，优先 float16 以节省显存，fallback 到 float32
     try:
-        safe_log_info("Loading ViT model...")
-        # 强制使用float32以确保与Milvus数据库兼容
+        safe_log_info("Loading ViT model with float16 precision...")
         vit = ViTModel.from_pretrained('/data/google/vit-base-patch16-224',
-                                       torch_dtype=torch.float32,
+                                       torch_dtype=torch.float16,
                                        low_cpu_mem_usage=True)
-        safe_log_info("ViT model loaded with float32 precision.")
+        safe_log_info("ViT model loaded with float16 precision.")
     except Exception as e:
-        safe_log_info(f"Failed to load ViT model with float32: {e}")
-        safe_log_info("Trying fallback to default load...")
+        safe_log_info(f"Failed to load ViT model with float16: {e}")
+        safe_log_info("Trying fallback to float32 load...")
         try:
-            vit = ViTModel.from_pretrained('/data/google/vit-base-patch16-224')
-            safe_log_info("ViT model loaded with default settings.")
+            vit = ViTModel.from_pretrained('/data/google/vit-base-patch16-224',
+                                           torch_dtype=torch.float32,
+                                           low_cpu_mem_usage=True)
+            safe_log_info("ViT model loaded with float32 precision.")
         except Exception as e2:
             safe_log_info(f"Failed to load ViT model entirely: {e2}")
             safe_log_info(traceback.format_exc())
@@ -179,7 +174,6 @@ def load_models():
             if os.path.exists(config_file):
                 try:
                     vit = PeftModel.from_pretrained(vit, 'outputs/vit_lora_best_peft')
-                    # 尝试合并后卸载 adapter（如果支持）
                     try:
                         vit = vit.merge_and_unload()
                         safe_log_info("LoRA model merged and loaded into ViT.")
@@ -209,12 +203,15 @@ def load_models():
             text_tokenizer.pad_token = text_tokenizer.eos_token
 
         safe_log_info("Preparing to load base text model with quantization (if available)...")
+
+        # ** 这里改为调用 _get_quant_kwargs() 函数，确保量化参数获取统一 **
+        quant_kwargs = _get_quant_kwargs()
+
         text_model = None
         load_success = False
 
         # 尝试使用量化加载（4-bit 或 8-bit）
         try:
-            # AutoModelForCausalLM supports quantization_config or load_in_8bit based on transformers/bnb version
             text_model = AutoModelForCausalLM.from_pretrained(
                 base_model_name,
                 trust_remote_code=True,
@@ -256,7 +253,6 @@ def load_models():
                     except Exception as e:
                         safe_log_info(f"Failed to load PEFT best model: {e}")
                         safe_log_info(traceback.format_exc())
-                        # fallback to checking final model below
                 else:
                     safe_log_info("Best Prompt Tuning config file not found, checking final model...")
                     if os.path.exists(final_model_path) and os.path.isdir(final_model_path):
@@ -302,6 +298,7 @@ def load_models():
         safe_log_info(traceback.format_exc())
         text_tokenizer = None
         text_model = None
+
 
     # 连接 Milvus
     try:
