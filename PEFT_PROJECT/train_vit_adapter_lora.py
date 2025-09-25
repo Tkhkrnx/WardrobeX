@@ -121,7 +121,7 @@ def train_vit_lora_optimized():
     # === 加载数据（使用带增强的数据集）===
     train_ds = FashionDatasetWithAugmentation(extractor=processor, root='outputs/train/fashiongen_crops', augment=True)
     val_ds = FashionDatasetWithAugmentation(extractor=processor, root='outputs/val/fashiongen_crops',
-                                            augment=False)  # 验证集不增强
+                                            augment=True)
 
     # 优化数据加载（充分利用24G显存）
     train_loader = DataLoader(
@@ -211,9 +211,12 @@ def train_vit_lora_optimized():
         with torch.no_grad():
             for batch in tqdm(val_loader, desc=f"[Val Epoch {epoch}]", ncols=100, leave=False):
                 x = batch['pixel_values'].cuda(non_blocking=True)
+                x_augmented = batch['augmented_pixel_values'].cuda(non_blocking=True)
                 with torch.cuda.amp.autocast():
                     output = model(pixel_values=x).last_hidden_state[:, 0, :]
-                    batch_loss = contrastive_loss_fn(output)
+                    output_augmented = model(pixel_values=x_augmented).last_hidden_state[:, 0, :]
+                    all_output = torch.cat([output, output_augmented], dim=0)
+                    batch_loss = contrastive_loss_fn(all_output)
                 val_loss += batch_loss.item()
                 val_batches += 1
 
